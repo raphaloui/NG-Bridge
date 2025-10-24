@@ -1,54 +1,462 @@
-<html>
-<body>
-  <h1>Pannello di Controllo Noda (Assegnazione)</h1>
-  <p id="status">In attesa di azione da Noda...</p>
-  <script>
-    const GOOGLE_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzrGZpFR9_cun8yByyssljuQveoMqBF9eYtg7CHFcPZGSiA1VhFqVE1-jr5irHbpXpdEw/exec'; // <--- INCOLLA L'URL QUI
+<!doctype html>
+<html lang="en">
 
-    // 1. Funzione per inviare il comando ad Apps Script
-    async function sendCommand(nodeId, targetId, assignee) {
-      document.getElementById('status').innerText = 'Invio comando...';
-      
-      const payload = {
-        action: 'ASSIGN_TASK',
-        nodeId: nodeId,
-        targetId: targetId,
-        value: assignee
-      };
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
 
-      try {
-        const response = await fetch(GOOGLE_APP_SCRIPT_URL, {
-          method: 'POST',
-          mode: 'no-cors', // Necessario per bypassare i problemi CORS negli ambienti VR/API
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify(payload)
-        });
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css"
+        integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
 
-        // NOTA: Con 'no-cors', non possiamo leggere la risposta JSON,
-        // ma lo script di Apps Script viene eseguito. Dobbiamo fidarci dell'esecuzione.
-        document.getElementById('status').innerText = `Comando inviato! Task ${nodeId} assegnato a ${assignee}.`;
+    <script src="https://noda.io/api/includes/noda.js"></script>
 
-      } catch (error) {
-        document.getElementById('status').innerText = `Errore nell'invio: ${error}`;
-      }
-    }
-    
-    // 2. Funzione per simulare l'interazione in Noda (questa viene chiamata dall'API di Noda)
-    // Noda può intercettare l'interazione utente e chiamare una funzione JavaScript nel tuo browser.
-    // Diciamo che l'utente rilascia 'SCAFFALE_1' sul nodo 'DISTRIB' e seleziona 'Chiara'.
-    window.testNodaAction = function() {
-        // Parametri di esempio:
-        const targetNode = 'SCAFFALE_1';
-        const postazioneNode = 'DISTRIB';
-        const assignee = 'Chiara Verdi';
+    <title>Noda Automation Bridge</title>
+
+    <script>
+
+        var statusElement;
+        var statusMessageElement;
+        var eventsMessageElement;
         
-        sendCommand(targetNode, postazioneNode, assignee);
-    }
-    
-    // Esegui un'azione di prova
-    testNodaAction(); 
-  </script>
+        // 1. DEFINIZIONI DELLE VARIABILI GLOBALI E SETUP
+        const GOOGLE_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzrGZpFR9_cun8yByyssljuQveoMqBF9eYtg7CHFcPZGSiA1VhFqVE1-jr5irHbpXpdEw/exec'; // *** IL TUO URL API ***
+        const POSTAZIONE_DISTRIB_UUID = 'DISTRIB'; 
+        const TOLERANCE = 3; // Tolleranza in unità Noda per definire la "vicinanza"
+
+        document.addEventListener('DOMContentLoaded', function () {
+            statusElement = document.getElementById('status');
+            statusMessageElement = document.getElementById('statusMessage');
+            eventsMessageElement = document.getElementById('eventsMessage');
+
+            window.noda.onNodeCreated = function (node) { eventMessage("Node created with uuid: " + node.uuid); }
+            
+            // ************ 2. IL TRIGGER DI AUTOMAZIONE ************
+            window.noda.onNodeUpdated = function (node) {
+                 eventMessage("Node updated with uuid: " + node.uuid);
+                 if(node.selected) {
+                     showNodeProps(node);
+                 }
+                 
+                 // LOGICA DI TRASCINAMENTO (TRIGGER SPAZIALE)
+                 // Controlliamo se la postazione esiste e se il nodo mosso non è la postazione stessa
+                 if (node.location && node.location.relativeTo === 'Origin' && node.uuid !== POSTAZIONE_DISTRIB_UUID) {
+                    
+                     // Coordinate target della postazione 'DISTRIB' (X:-12, Z:-3)
+                     const targetX = -12; 
+                     const targetY = 1.5; 
+                     const targetZ = -3;
+                     
+                     // Calcola la distanza sul piano XZ
+                     const distXZ = Math.sqrt(Math.pow(node.location.x - targetX, 2) + Math.pow(node.location.z - targetZ, 2)); 
+                     
+                     // Verifica se il nodo è nella zona di tolleranza
+                     if (distXZ < TOLERANCE) { 
+                         
+                         // Azione Triggerata: Assegnazione Task
+                         const assegnatarioDefault = "Chiara Verdi"; 
+                         
+                         sendCommand('ASSIGN_TASK', node.uuid, POSTAZIONE_DISTRIB_UUID, assegnatarioDefault);
+                         
+                         // Feedback visivo immediato 
+                         window.noda.updateNode({
+                             uuid: node.uuid,
+                             location: { x: targetX, y: targetY, z: targetZ }
+                         });
+                         
+                         eventMessage(`SUCCESS: Task ${node.uuid} assegnato a ${assegnatarioDefault}!`);
+                     }
+                 }
+            }
+            // ************ FINE TRIGGER ************
+            
+            window.noda.onNodeDeleted = function (node) { eventMessage("Node deleted with uuid: " + node.uuid); }
+
+            window.noda.onLinkCreated = function (link) { eventMessage("Link created with uuid: " + link.uuid); }
+            window.noda.onLinkUpdated = function (link) {
+                 eventMessage("Link updated with uuid: " + link.uuid);
+                 if(link.selected) {
+                     showLinkProps(link);
+                 }
+            }
+            window.noda.onLinkDeleted = function (link) { eventMessage("Link deleted with uuid: " + link.uuid); } 
+
+            window.noda.onInitialized = function () {
+                if (!window.noda.isInstalled())
+                    statusError("Noda VR context not found, please try from within VR app.");
+                else
+                    populateUser();
+            }
+
+        }, false);
+
+        async function populateUser()
+        {
+            try {
+                const user = await window.noda.getUser();
+                document.getElementById('userId').textContent = user.userId;
+            } catch (error) {
+                statusError("Get User error: " + error);
+            }
+
+        }
+        
+        // 3. FUNZIONE DI INVIO WEBHOOK AD APPS SCRIPT
+        async function sendCommand(actionType, nodeId, targetId, value) {
+            try {
+                const payload = {
+                    action: actionType,
+                    nodeId: nodeId,
+                    targetId: targetId,
+                    value: value
+                };
+
+                console.log("Sending payload:", payload);
+                eventMessage(`Sending command: ${actionType} for node ${nodeId} to Google.`);
+                
+                const response = await fetch(GOOGLE_APP_SCRIPT_URL, {
+                    method: 'POST',
+                    mode: 'no-cors', 
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(payload)
+                });
+
+                statusSuccess(`Comando inviato: ${actionType} per nodo ${nodeId}`);
+                return true;
+
+            } catch (error) {
+                statusError(`Errore invio comando: ${error}`);
+                return false;
+            }
+        }
+
+
+        // ***************************************************************
+        // Le funzioni di utility (status, eventMessage) e CRUD (createNode, updateNode, listNodes, ecc.)
+        // del plugin Noda sono omesse qui per brevità ma DEVONO ESSERE MANTENUTE.
+        // ***************************************************************
+        
+        // Incolla qui tutte le funzioni JavaScript dal codice lungo originale che hai trovato
+        // (statusSuccess, statusError, eventMessage, clearEvents, createNode, updateNode, deleteNode, listNodes,
+        // obtainNodeProps, showNodeProps, createLink, updateLink, deleteLink, listLinks,
+        // saveMap, loadMap, clearMap, obtainLinkProps, showLinkProps)
+        
+        // Per testare velocemente, mantieni almeno le funzioni di utility:
+        
+        function statusSuccess(message) {
+            statusMessageElement.textContent = message;
+            statusElement.classList.remove('error');
+            statusElement.classList.add('success');
+        }
+
+        function statusError(message) {
+            statusMessageElement.textContent = message;
+            statusElement.classList.add('error');
+            statusElement.classList.remove('success');
+        }
+
+        function eventMessage(message) {
+            eventsMessageElement.innerHTML = message + "<br/>" + eventsMessageElement.innerHTML;
+        }
+
+        function clearEvents() {
+            eventsMessageElement.innerHTML = "";
+        }    
+         function statusSuccess(message) {
+            statusMessageElement.textContent = message;
+            statusElement.classList.remove('error');
+            statusElement.classList.add('success');
+        }
+
+        function statusError(message) {
+            statusMessageElement.textContent = message;
+            statusElement.classList.add('error');
+            statusElement.classList.remove('success');
+        }
+
+        function eventMessage(message) {
+            eventsMessageElement.innerHTML = message + "<br/>" + eventsMessageElement.innerHTML;
+        }
+
+        function clearEvents() {
+            eventsMessageElement.innerHTML = "";
+        }    
+
+        async function createNode() {
+            try {
+                var nodeProps = obtainNodeProps();
+
+                const node = await window.noda.createNode(nodeProps);
+
+                //You can supply a Uuid or one will be assigned at creation time
+                document.getElementById('nodeUuid').value = node.uuid;
+
+                statusSuccess("Node created with uuid: " + node.uuid);
+
+            } catch(error) {
+                statusError("Node create error: " + error);
+            }
+        }
+
+        async function updateNode() {
+            try {
+                var nodeProps = obtainNodeProps();
+
+                const node = await window.noda.updateNode(nodeProps);
+
+                statusSuccess("Node updated with uuid: " + node.uuid);
+
+            } catch (error) {
+                statusError("Node update error: " + error);
+            }
+        }
+
+        async function deleteNode() {
+            try {
+                var nodeProps = {};
+
+                nodeProps.uuid = document.getElementById('nodeUuid').value;
+
+                const node = await window.noda.deleteNode(nodeProps);
+
+                statusSuccess("Node deleted with uuid: " + node.uuid);
+
+            } catch (error) {
+                statusError("Node delete error: " + error);
+            }
+        }
+
+        async function listNodes() {
+            try {
+                var nodeProps = obtainNodeProps();
+
+                const result = await window.noda.listNodes(nodeProps);
+
+                let count = 0;
+
+                if(result != null && result.nodes != null)
+                    count = result.nodes.length;
+
+                statusSuccess("List Nodes returned " + count + " nodes");
+
+            } catch (error) {
+                statusError("List Nodes error: " + error);
+            }
+        }
+
+        function obtainNodeProps()
+        {
+            var nodeProps = {};
+
+            nodeProps.uuid = document.getElementById('nodeUuid').value;
+            nodeProps.title = document.getElementById('nodeTitle').value;
+            nodeProps.color = document.getElementById('nodeColor').value;
+            nodeProps.opacity = parseFloat(document.getElementById('nodeOpacity').value);
+            nodeProps.shape = document.getElementById('nodeShape').value;
+            nodeProps.imageUrl = document.getElementById('nodeImageUrl').value;
+            nodeProps.notes = document.getElementById('nodeNotes').value;
+            nodeProps.pageUrl = document.getElementById('nodePageUrl').value;
+            nodeProps.size = parseFloat(document.getElementById('nodeSize').value);
+
+            nodeProps.location = {};
+
+            nodeProps.location.x = parseFloat(document.getElementById('nodeX').value);
+            nodeProps.location.y = parseFloat(document.getElementById('nodeY').value);
+            nodeProps.location.z = parseFloat(document.getElementById('nodeZ').value);
+            nodeProps.location.x = nodeProps.location.x != NaN ? nodeProps.location.x : 0;
+            nodeProps.location.y = nodeProps.location.y != NaN ? nodeProps.location.y : 0;
+            nodeProps.location.z = nodeProps.location.z != NaN ? nodeProps.location.z : 0;
+
+            nodeProps.location.relativeTo = document.getElementById('nodeRelativeTo').value;
+
+            nodeProps.selected = document.getElementById('nodeSelected').checked;
+            nodeProps.collapsed = document.getElementById('nodeCollapsed').checked;
+
+            return nodeProps;
+        }
+
+        function showNodeProps(nodeProps) {
+
+            document.getElementById('nodeUuid').value = nodeProps.uuid;
+            document.getElementById('nodeTitle').value = nodeProps.title;
+            document.getElementById('nodeColor').value = nodeProps.color;
+            document.getElementById('nodeOpacity').value = nodeProps.opacity;
+            document.getElementById('nodeShape').value = nodeProps.shape;
+            document.getElementById('nodeImageUrl').value = nodeProps.imageUrl;
+            document.getElementById('nodeNotes').value = nodeProps.notes;
+            document.getElementById('nodePageUrl').value = nodeProps.pageUrl;
+            document.getElementById('nodeSize').value = nodeProps.size;
+
+            document.getElementById('nodeX').value = nodeProps.location.x;
+            document.getElementById('nodeY').value = nodeProps.location.y;
+            document.getElementById('nodeZ').value = nodeProps.location.z;
+
+            document.getElementById('nodeRelativeTo').value = nodeProps.location.relativeTo;
+
+            document.getElementById('nodeSelected').checked = nodeProps.selected;
+            document.getElementById('nodeCollapsed').checked = nodeProps.collapsed;
+
+            return nodeProps;
+        }
+
+        async function createLink()
+        {
+            try {
+                var linkProps = obtainLinkProps();
+
+                const link = await window.noda.createLink(linkProps);
+
+                //You can supply a Uuid or one will be assigned at creation time
+                document.getElementById('linkUuid').value = link.uuid;
+
+                statusSuccess("Link created with uuid: " + link.uuid);
+
+            } catch (error) {
+                statusError("Link create error: " + error);
+            }
+        }
+
+        async function updateLink() {
+            try {
+                var linkProps = obtainLinkProps();
+
+                const link = await window.noda.updateLink(linkProps);
+
+                statusSuccess("Link updated with uuid: " + link.uuid);
+
+            } catch (error) {
+                statusError("Link update error: " + error);
+            }
+        }
+
+        async function deleteLink() {
+            try {
+                var linkProps = {};
+
+                linkProps.uuid = document.getElementById('linkUuid').value;
+
+                const link = await window.noda.deleteLink(linkProps);
+
+                statusSuccess("Link deleted with uuid: " + link.uuid);
+
+            } catch (error) {
+                statusError("Link delete error: " + error);
+            }
+        }
+
+        async function listLinks() {
+            try {
+                var linkProps = obtainLinkProps();
+
+                const result = await window.noda.listLinks(linkProps);
+
+                let count = 0;
+
+                if (result != null && result.links != null)
+                    count = result.links.length;
+
+                statusSuccess("List Links returned " + count + " links");
+
+            } catch (error) {
+                statusError("List Links error: " + error);
+            }
+        }
+
+        var savedMapJsonText = null;
+        
+        async function saveMap() {
+            try {
+                const result = await window.noda.saveJson();
+
+                savedMapJsonText = result.jsonString;
+                
+                statusSuccess("Map saved");
+
+            } catch (error) {
+                statusError("Save Map error: " + error);
+            }
+        }
+        
+        async function loadMap() {
+            try {
+                const result = await window.noda.loadJson({jsonString:savedMapJsonText});
+
+                statusSuccess("Map loaded");
+
+            } catch (error) {
+                statusError("Load Map error: " + error);
+            }
+        }
+        
+        async function clearMap() {
+            try {
+                const result = await window.noda.clearMap();
+
+                statusSuccess("Map cleared");
+
+            } catch (error) {
+                statusError("Clear Map error: " + error);
+            }
+        }
+
+        function obtainLinkProps() {
+            var linkProps = {};
+
+            linkProps.uuid = document.getElementById('linkUuid').value;
+            linkProps.fromUuid = document.getElementById('linkFromUuid').value;
+            linkProps.toUuid = document.getElementById('linkToUuid').value;
+
+            linkProps.title = document.getElementById('linkTitle').value;
+            linkProps.color = document.getElementById('linkColor').value;
+            linkProps.shape = document.getElementById('linkShape').value;
+            linkProps.size = parseFloat(document.getElementById('linkSize').value);
+            linkProps.curve = document.getElementById('linkCurve').value;
+            linkProps.trail = document.getElementById('linkTrail').value;
+
+            linkProps.selected = document.getElementById('linkSelected').checked;
+
+            return linkProps;
+        }
+
+        function showLinkProps(linkProps) {
+
+            document.getElementById('linkUuid').value = linkProps.uuid;
+            document.getElementById('linkFromUuid').value = linkProps.fromUuid;
+            document.getElementById('linkToUuid').value = linkProps.toUuid;
+            document.getElementById('linkTitle').value = linkProps.title;
+            document.getElementById('linkColor').value = linkProps.color;
+            document.getElementById('linkShape').value = linkProps.shape;
+            document.getElementById('linkSize').value = linkProps.size;
+            document.getElementById('linkCurve').value = linkProps.curve;
+            document.getElementById('linkTrail').value = linkProps.trail;
+            
+            document.getElementById('linkSelected').selected = linkProps.checked;
+
+            return linkProps;
+        }
+        // NOTA BENE: SENZA LE FUNZIONI obtainNodeProps E showNodeProps, IL CODICE NON COMPILERÀ. 
+        // DOVRAI REINSERIRE TUTTE LE FUNZIONI DI BASE DEL PLUGIN NODA STARTER.
+        // Aggiungo solo i div essenziali per il debug qui, il layout completo è necessario.
+    </script>
+
+    <style>
+        /* Stili CSS omessi per brevità, ma necessari per il layout */
+    </style>
+</head>
+
+<body>
+    <h1>Noda Web API Test (User: <span id="userId"></span>)</h1>
+
+    <div class="container-fluid">
+        <div class="row">
+            <div class="col-6" >
+                <div id="status" class="status success"><p>Status: <span id="statusMessage">Inizializzazione Noda...</span></p></div>
+                <div id="events" class="events"><p>Events: <span style="float:right;margin-right:10px"><a href="#" onclick="clearEvents()">Clear</a></span><br/><span id="eventsMessage"></span></p></div>
+            </div>
+        </div>
+    </div>
 </body>
+
 </html>
+
