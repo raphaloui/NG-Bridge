@@ -1,0 +1,54 @@
+<html>
+<body>
+  <h1>Pannello di Controllo Noda (Assegnazione)</h1>
+  <p id="status">In attesa di azione da Noda...</p>
+  <script>
+    const GOOGLE_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzrGZpFR9_cun8yByyssljuQveoMqBF9eYtg7CHFcPZGSiA1VhFqVE1-jr5irHbpXpdEw/exec'; // <--- INCOLLA L'URL QUI
+
+    // 1. Funzione per inviare il comando ad Apps Script
+    async function sendCommand(nodeId, targetId, assignee) {
+      document.getElementById('status').innerText = 'Invio comando...';
+      
+      const payload = {
+        action: 'ASSIGN_TASK',
+        nodeId: nodeId,
+        targetId: targetId,
+        value: assignee
+      };
+
+      try {
+        const response = await fetch(GOOGLE_APP_SCRIPT_URL, {
+          method: 'POST',
+          mode: 'no-cors', // Necessario per bypassare i problemi CORS negli ambienti VR/API
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(payload)
+        });
+
+        // NOTA: Con 'no-cors', non possiamo leggere la risposta JSON,
+        // ma lo script di Apps Script viene eseguito. Dobbiamo fidarci dell'esecuzione.
+        document.getElementById('status').innerText = `Comando inviato! Task ${nodeId} assegnato a ${assignee}.`;
+
+      } catch (error) {
+        document.getElementById('status').innerText = `Errore nell'invio: ${error}`;
+      }
+    }
+    
+    // 2. Funzione per simulare l'interazione in Noda (questa viene chiamata dall'API di Noda)
+    // Noda può intercettare l'interazione utente e chiamare una funzione JavaScript nel tuo browser.
+    // Diciamo che l'utente rilascia 'SCAFFALE_1' sul nodo 'DISTRIB' e seleziona 'Chiara'.
+    window.testNodaAction = function() {
+        // Parametri di esempio:
+        const targetNode = 'SCAFFALE_1';
+        const postazioneNode = 'DISTRIB';
+        const assignee = 'Chiara Verdi';
+        
+        sendCommand(targetNode, postazioneNode, assignee);
+    }
+    
+    // Esegui un'azione di prova
+    testNodaAction(); 
+  </script>
+</body>
+</html>
