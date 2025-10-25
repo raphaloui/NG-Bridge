@@ -1,254 +1,285 @@
-<!doctype html>
-<html lang="en">
-
+<!DOCTYPE html>
+<html lang="it">
 <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no">
-
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@4.0.0/dist/css/bootstrap.min.css"
-        integrity="sha384-Gn5384xqQ1aoWXA+058RXPxPg6fy4IWvTNh0E263XmFcJlSAwiGgFAW/dAiS6JXm" crossorigin="anonymous">
-
-    <script src="https://noda.io/api/includes/noda.js"></script>
-
-    <title>Noda Automation Bridge</title>
-
+    <meta charset="UTF-8">
+    <title>WCV - Sistema Integrato di Produttività Creativa Spaziale</title>
     <style>
-        .status {
-            padding: 5px;
-            margin: 5px 0;
-            border: 1px solid #ccc;
+        /* Stili CSS di base per il pannello di notifica (se usi un iframe) */
+        body {
+            font-family: Arial, sans-serif;
+            color: white;
+            background-color: transparent;
+            margin: 0;
+            padding: 10px;
         }
-
-        .success {
-            background-color: #d4edda;
-            color: #155724;
-            border-color: #c3e6cb;
+        #status-message {
+            position: fixed;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            background-color: rgba(0, 0, 0, 0.7);
+            padding: 10px 20px;
+            border-radius: 5px;
+            opacity: 0;
+            transition: opacity 0.5s;
         }
-
-        .error {
-            background-color: #f8d7da;
-            color: #721c24;
-            border-color: #f5c6cb;
-        }
-
-        .events {
-            height: 200px;
-            overflow-y: scroll;
-            border: 1px solid #ccc;
-            padding: 5px;
-            background-color: #f8f9fa;
+        .active {
+            opacity: 1 !important;
         }
     </style>
 </head>
-
 <body>
-    <div class="container-fluid">
-        <div class="row">
-            <div class="col-12">
-                <h1>Noda Automation Bridge (User: <span id="userId"></span>)</h1>
-                <p>Questo pannello mostra lo stato dell'integrazione VR & Google Apps Script.</p>
-                <div id="status" class="status">
-                    <p>Status: <span id="statusMessage">Inizializzazione Noda...</span></p>
-                </div>
-            </div>
-        </div>
 
-        <div class="row">
-            <div class="col-6">
-                <h3>Event Log</h3>
-                <div id="events" class="events">
-                    <p>Events: <span style="float:right;margin-right:10px"><a href="#" onclick="clearEvents()">Clear</a></span><br/><span id="eventsMessage"></span></p>
-                </div>
-            </div>
-            
-            <div class="col-6">
-                <h3>Proprietà Nodo</h3>
-                <form>
-                    <div class="form-group">
-                        <label>UUID</label>
-                        <input type="text" class="form-control" id="nodePropsUuid" readonly>
-                    </div>
-                    <div class="form-group">
-                        <label>Titolo</label>
-                        <input type="text" class="form-control" id="nodePropsTitle" placeholder="Title">
-                    </div>
-                    <div class="form-group">
-                        <label>Posizione (X, Y, Z)</label>
-                        <div class="row">
-                            <div class="col"><input type="number" class="form-control" id="nodePropsLocationX" placeholder="X"></div>
-                            <div class="col"><input type="number" class="form-control" id="nodePropsLocationY" placeholder="Y"></div>
-                            <div class="col"><input type="number" class="form-control" id="nodePropsLocationZ" placeholder="Z"></div>
-                        </div>
-                    </div>
-                </form>
-            </div>
-        </div>
-
-    </div>
+    <div id="status-message">Benvenuto nel WCV!</div>
 
     <script>
-        var statusElement;
-        var statusMessageElement;
-        var eventsMessageElement;
+        // ===================================================================
+        // 1. COSTANTI E CONFIGURAZIONE ESSENZIALE
+        // ===================================================================
 
-        // 1. DEFINIZIONI DELLE VARIABILI GLOBALI
-        const GOOGLE_APP_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbzrGZpFR9_cun8yByyssljuQveoMqBF9eYtg7CHFcPZGSiA1VhFqVE1-jr5irHbpXpdEw/exec'; // *** IL TUO URL API CONFERMATO ***
-        const POSTAZIONE_DISTRIB_UUID = 'DISTRIB'; 
-        const TOLERANCE = 3; // Tolleranza in unità Noda per definire la "vicinanza" (3 metri)
+        // INCOLLA QUI L'URL DEL TUO WEB BRIDGE (ottenuto dal deploy di Apps Script)
+        const WEB_BRIDGE_URL = 'https://script.google.com/macros/s/AKfycbwTgBQcNG_egxOUXy13FKquWcvUv5TgVaBGfTNmWmk5Nhvk5SaPRJyw1YBYNsp-kIr5DA/exec';
 
-        document.addEventListener('DOMContentLoaded', function () {
-            statusElement = document.getElementById('status');
-            statusMessageElement = document.getElementById('statusMessage');
-            eventsMessageElement = document.getElementById('eventsMessage');
+        // UUID DI TUTTE LE POSTAZIONI DI COMANDO (Questi devono corrispondere agli ID reali in Noda!)
+        // Coordinate e ID di esempio per la logica di collisione (da adattare al tuo spazio Noda)
+        const TARGETS = [
+            { id: 'FRULLATORE_IDEE', x: 10, z: 0, radius: 5, action: 'PROCESS_TEXT_LLM' },
+            { id: 'GEMMA_SPAZIALE', x: 25, z: 0, radius: 5, action: 'GENERATIVE_VISUAL_REPRESENTATION' },
+            { id: 'EMAIL_HUB', x: 40, z: 0, radius: 5, action: 'SEND_EMAIL' },
+            { id: 'KEEP_HUB', x: 55, z: 0, radius: 5, action: 'CREATE_NOTE' },
+            { id: 'CRITICAL_STATUS_HUB', x: 70, z: 0, radius: 5, action: 'APPLY_VFX_BY_TAG' },
+            { id: 'VOID_ZONE', x: 90, z: 0, radius: 8, action: 'INCINERATE_NODE' } // Usato anche per onNodeHit
+            // Aggiungi qui CODE_RUNNER, TIMER, RECINTI, ecc.
+        ];
 
-            // Gestori di Eventi Noda
-            window.noda.onNodeCreated = function (node) { eventMessage("Node created with uuid: " + node.uuid); }
+        // ===================================================================
+        // 2. FUNZIONE DI COMUNICAZIONE (sendCommand)
+        // ===================================================================
+
+        function eventMessage(msg) {
+            const el = document.getElementById('status-message');
+            el.textContent = msg;
+            el.classList.add('active');
+            setTimeout(() => {
+                el.classList.remove('active');
+            }, 5000);
+        }
+
+        async function sendCommand(action, nodeId, nodeTitle, nodeNotes, pageUrl, targetId, recipientEmail = null, metadata = {}) {
+            const payload = { 
+                action, nodeId, nodeTitle, nodeNotes, pageUrl, targetId, recipientEmail, metadata
+            };
             
-            // ************ 2. IL TRIGGER DI AUTOMAZIONE (FATTO) ************
-            window.noda.onNodeUpdated = function (node) {
-                 eventMessage("Node updated with uuid: " + node.uuid);
-                 
-                 // Se il nodo è selezionato, mostriamo le sue proprietà nell'interfaccia 2D (funzione di base del plugin)
-                 if(node.selected) {
-                     showNodeProps(node);
-                 }
-                 
-                 // LOGICA DI TRASCINAMENTO (TRIGGER SPAZIALE)
-                 // Controlliamo se la postazione esiste e se il nodo mosso non è la postazione stessa
-                 if (node.location && node.location.relativeTo === 'Origin' && node.uuid !== POSTAZIONE_DISTRIB_UUID) {
-                    
-                     // Coordinate target della postazione 'DISTRIB' (X:-12, Z:-3)
-                     const targetX = -12; 
-                     const targetY = 1.5; 
-                     const targetZ = -3;
-                     
-                     // Calcola la distanza sul piano XZ
-                     const distXZ = Math.sqrt(Math.pow(node.location.x - targetX, 2) + Math.pow(node.location.z - targetZ, 2)); 
-                     
-                     // Verifica se il nodo è nella zona di tolleranza (lo consideriamo "rilasciato" sulla postazione)
-                     if (distXZ < TOLERANCE) { 
-                         
-                         // Azione Triggerata: Assegnazione Task
-                         const assegnatarioDefault = "Chiara Verdi"; 
-                         
-                         // Invia il comando ad Apps Script
-                         sendCommand('ASSIGN_TASK', node.uuid, POSTAZIONE_DISTRIB_UUID, assegnatarioDefault);
-                         
-                         // Feedback visivo immediato: muove il task alla posizione esatta della postazione
-                         window.noda.updateNode({
-                             uuid: node.uuid,
-                             location: { x: targetX, y: targetY, z: targetZ }
-                         });
-                         
-                         eventMessage(`SUCCESS: Task ${node.uuid} assegnato a ${assegnatarioDefault}!`);
-                     }
-                 }
-            }
-            // ************ FINE TRIGGER ************
-            
-            window.noda.onNodeDeleted = function (node) { eventMessage("Node deleted with uuid: " + node.uuid); }
+            eventMessage(`Invio comando: ${action}...`);
 
-            window.noda.onLinkCreated = function (link) { eventMessage("Link created with uuid: " + link.uuid); }
-            window.noda.onLinkUpdated = function (link) {
-                 eventMessage("Link updated with uuid: " + link.uuid);
-                 if(link.selected) {
-                     // Funzione showLinkProps omessa per brevità, ma necessaria in un setup completo
-                 }
-            }
-            window.noda.onLinkDeleted = function (link) { eventMessage("Link deleted with uuid: " + link.uuid); } 
-
-            window.noda.onInitialized = function () {
-                if (!window.noda.isInstalled())
-                    statusError("Noda VR context not found, please try from within VR app.");
-                else
-                    populateUser();
-            }
-
-        }, false);
-
-        // 3. FUNZIONE DI INVIO WEBHOOK AD APPS SCRIPT
-        async function sendCommand(actionType, nodeId, targetId, value) {
             try {
-                const payload = {
-                    action: actionType,
-                    nodeId: nodeId,
-                    targetId: targetId,
-                    value: value
-                };
-
-                console.log("Sending payload:", payload);
-                eventMessage(`Sending command: ${actionType} for node ${nodeId} to Google.`);
-                
-                const response = await fetch(GOOGLE_APP_SCRIPT_URL, {
+                const response = await fetch(WEB_BRIDGE_URL, {
                     method: 'POST',
-                    mode: 'no-cors', // Mantiene la compatibilità
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
+                    headers: { 'Content-Type': 'text/plain' }, // Importante per Google Apps Script
                     body: JSON.stringify(payload)
                 });
+                
+                const text = await response.text();
 
-                statusSuccess(`Comando inviato: ${actionType} per nodo ${nodeId}`);
-                return true;
+                // Gestione della risposta JSON per la Gemma Spaziale
+                if (action === 'GENERATIVE_VISUAL_REPRESENTATION') {
+                    try {
+                        return JSON.parse(text);
+                    } catch (e) {
+                        eventMessage(`ERRORE: Risposta JSON non valida dal backend. Controlla GAS logs.`);
+                        return { error: text };
+                    }
+                }
 
+                return text; // Ritorna stringa per gli altri comandi
             } catch (error) {
-                statusError(`Errore invio comando: ${error}`);
-                return false;
+                eventMessage(`ERRORE di rete: ${error.message}`);
+                return `SERVER_ERROR: ${error.message}`;
             }
         }
 
-        // Funzioni Utilità Noda
-        async function populateUser()
-        {
-            try {
-                const user = await window.noda.getUser();
-                document.getElementById('userId').textContent = user.userId;
-            } catch (error) {
-                statusError("Get User error: " + error);
-            }
-        }
-        
-        function statusSuccess(message) {
-            statusMessageElement.textContent = message;
-            statusElement.classList.remove('error');
-            statusElement.classList.add('success');
-        }
+        // ===================================================================
+        // 3. LOGICA DI COLLISIONE E LANCIO (onNodeUpdated)
+        // ===================================================================
 
-        function statusError(message) {
-            statusMessageElement.textContent = message;
-            statusElement.classList.add('error');
-            statusElement.classList.remove('success');
-        }
-
-        function eventMessage(message) {
-            eventsMessageElement.innerHTML = message + "<br/>" + eventsMessageElement.innerHTML;
-        }
-
-        function clearEvents() {
-            eventsMessageElement.innerHTML = "";
-        }
-        
-        // Funzioni per la gestione delle proprietà dei nodi (essenziali per onNodeUpdated)
-        function showNodeProps(nodeProps) {
-            document.getElementById('nodePropsUuid').value = nodeProps.uuid || '';
-            document.getElementById('nodePropsTitle').value = nodeProps.title || '';
+        // Funzione per trovare la postazione colpita (DEVE ESSERE PRECISA nel tuo ambiente Noda)
+        function findTargetByLocation(location) {
+            // Questa è una simulazione semplificata basata sulle coordinate.
+            // In un ambiente Noda reale, usi le API di Noda per rilevare la collisione del nodo con un altro oggetto
+            // o devi estrarre il targetId dall'evento se l'API lo fornisce.
             
-            if (nodeProps.location) {
-                document.getElementById('nodePropsLocationX').value = nodeProps.location.x || 0;
-                document.getElementById('nodePropsLocationY').value = nodeProps.location.y || 0;
-                document.getElementById('nodePropsLocationZ').value = nodeProps.location.z || 0;
-            } else {
-                document.getElementById('nodePropsLocationX').value = 0;
-                document.getElementById('nodePropsLocationY').value = 0;
-                document.getElementById('nodePropsLocationZ').value = 0;
+            // SIMULAZIONE: Controlla la distanza dai centri delle postazioni
+            for (const target of TARGETS) {
+                const distance = Math.sqrt(
+                    Math.pow(location.x - target.x, 2) + 
+                    Math.pow(location.z - target.z, 2)
+                );
+                if (distance < target.radius) {
+                    return target;
+                }
             }
-            // Qui andrebbero altre proprietà se l'interfaccia fosse completa
+            return null;
         }
-        
-        // La funzione obtainNodeProps e le funzioni CRUD di esempio (createNode, updateNode, deleteNode, listNodes) 
-        // non sono strettamente necessarie per *questo* trigger, ma dovrebbero essere incluse in un plugin completo. 
-        // Ho incluso gli elementi essenziali per il funzionamento del trigger.
+
+
+        window.noda.onNodeUpdated = async (node) => { 
+            // La logica di collisione/lancio dovrebbe essere gestita qui o tramite un evento di collisione di Noda.
+            // Se il nodo è "lanciato" (ad esempio, la sua velocità è alta), controlliamo la posizione finale.
+            
+            // SIMULAZIONE: Assumiamo che il nodo sia stato lanciato e si sia fermato in location.
+            const target = findTargetByLocation(node.location);
+
+            if (target) {
+                let response;
+                
+                switch (target.action) {
+                    
+                    case 'PROCESS_TEXT_LLM': // FRULLATORE DI IDEE
+                        response = await sendCommand(target.action, node.uuid, node.title, node.notes, node.pageUrl, target.id);
+                        window.noda.updateNode({ uuid: node.uuid, notes: response });
+                        window.noda.playSound({ type: 'SFX_SUCCESS' });
+                        eventMessage(`Frullatore: Note processate da Gemini.`);
+                        break;
+                        
+                    case 'EMAIL_HUB': // EMAIL: INVIO
+                        const recipient = prompt("Destinatario e-mail:"); 
+                        if (recipient) {
+                            response = await sendCommand(target.action, node.uuid, node.title, node.notes, node.pageUrl, target.id, recipient);
+                            if (response.includes("SUCCESS")) {
+                                window.noda.deleteNode({ uuid: node.uuid });
+                                window.noda.playSound({ type: 'SFX_WHOOSH' });
+                                eventMessage(`E-mail inviata con successo a ${recipient}.`);
+                            }
+                        }
+                        break;
+
+                    case 'CREATE_NOTE': // KEEP: CREAZIONE NOTA
+                        response = await sendCommand(target.action, node.uuid, node.title, node.notes, node.pageUrl, target.id);
+                        if (response.includes("SUCCESS")) {
+                            window.noda.deleteNode({ uuid: node.uuid }); 
+                            window.noda.playSound({ type: 'SFX_TRANSFER' });
+                            eventMessage(`Nota trasferita a Google Keep.`);
+                        }
+                        break;
+                        
+                    case 'GENERATIVE_VISUAL_REPRESENTATION': // GEMMA SPAZIALE (Ramificazione)
+                        const data = await sendCommand(target.action, node.uuid, node.title, node.notes, node.pageUrl, target.id);
+                        
+                        if (data.error) { eventMessage(`ERRORE GEMMA: ${data.error}`); return; }
+
+                        if (data.visualUrl) {
+                            // Applica la visualizzazione al nodo genitore
+                            window.noda.updateNode({ uuid: node.uuid, imageUrl: data.visualUrl, form: 'PLANAR_QUAD', size: 8.0 });
+                        }
+                        
+                        if (data.newNodes) {
+                            // Germogliazione: crea i nodi figli
+                            data.newNodes.forEach((newNodeData, index) => {
+                                const angle = (index / data.newNodes.length) * 360;
+                                const radius = 10;
+                                
+                                window.noda.createNode({
+                                    title: newNodeData.title,
+                                    notes: newNodeData.notes,
+                                    location: { // Posizionamento in un cerchio attorno al genitore
+                                        x: node.location.x + radius * Math.cos(angle * Math.PI / 180), 
+                                        y: node.location.y + 1, 
+                                        z: node.location.z + radius * Math.sin(angle * Math.PI / 180) 
+                                    },
+                                    parent: node.uuid, // Collegamento automatico
+                                    color: '#00ccff'
+                                });
+                            });
+                            window.noda.playSound({ type: 'SFX_GEMMA_SPAZIALE' });
+                            eventMessage(`GEMMA ATTIVATA: Generati ${data.newNodes.length} nuovi rami creativi.`);
+                        }
+                        break;
+                        
+                    case 'APPLY_VFX_BY_TAG': // APPLICA FUOCO/FULMINI
+                        let vfxType = null;
+                        
+                        if (node.notes.includes('#POTENZIALE')) {
+                            vfxType = 'VFX_FULMINI_BLUE'; 
+                        } else if (node.notes.includes('#URGENTE')) {
+                            vfxType = 'VFX_FIAMME_ROSSE'; 
+                        }
+
+                        if (vfxType) {
+                            window.noda.applyVFX({ uuid: node.uuid, effect: vfxType, intensity: 1.0 });
+                            window.noda.playSound({ type: 'SFX_ENERGY_CHARGE' });
+                            eventMessage(`Nodo potenziato: Applicato VFX critico.`);
+                        } else {
+                            eventMessage(`Nessun tag critico trovato nel nodo.`);
+                        }
+                        break;
+                }
+            }
+        };
+
+        // ===================================================================
+        // 4. LOGICA DI INTERAZIONE FISICA (Pugno Spaziale)
+        // ===================================================================
+
+        window.noda.onNodeHit = async (node, controllerVelocity) => { 
+            const VOID_ZONE = TARGETS.find(t => t.id === 'VOID_ZONE');
+
+            if (!VOID_ZONE) return;
+            
+            // Controllo se il colpo avviene all'interno della VOID_ZONE
+            const distToZone = Math.sqrt(
+                Math.pow(node.location.x - VOID_ZONE.x, 2) + 
+                Math.pow(node.location.z - VOID_ZONE.z, 2)
+            );
+            
+            // Soglia di impatto: Se vicino alla zona e il colpo è forte (magnitudine > 1.5 m/s)
+            if (distToZone < VOID_ZONE.radius && controllerVelocity.magnitude > 1.5) { 
+                
+                // 1. Chiamata backend per pulizia database
+                await sendCommand('INCINERATE_NODE', node.uuid, null, null, null, VOID_ZONE.id); 
+                
+                // 2. Feedback Viscerale
+                window.noda.playVFX({ type: 'VFX_EXPLOSION_SMALL', uuid: node.uuid });
+                window.noda.playSound({ type: 'SFX_SHATTER' }); // Suono di distruzione
+                
+                // 3. Eliminazione definitiva
+                window.noda.deleteNode({ uuid: node.uuid, delay: 50 }); // Breve ritardo per il VFX
+                
+                eventMessage(`NODE DISTRUTTO: Eliminato con Pugno Spaziale!`);
+            }
+        };
+
+        // ===================================================================
+        // 5. LOGICA DI GAMIFICATION (Moda e Status)
+        // ===================================================================
+
+        // Esempio: Cambia il colore della tuta se in stato di focus
+        function checkFocusStatus() {
+            // Questa funzione richiederebbe il tracciamento del tempo nel tuo ambiente Noda.
+            const TIME_IN_FOCUS_SIMULATED = 1500; // 25 minuti
+
+            if (TIME_IN_FOCUS_SIMULATED > 1200) { 
+                // Colore brillante per lo stato di flow
+                window.noda.updateAvatarMaterial({ 
+                    materialName: 'Tuta', 
+                    properties: { color: '#00FFFF', emissiveIntensity: 0.8 } 
+                });
+            } else {
+                // Colore base
+                window.noda.updateAvatarMaterial({ 
+                    materialName: 'Tuta', 
+                    properties: { color: '#555555', emissiveIntensity: 0.1 } 
+                });
+            }
+        }
+
+        // Avvia il controllo dello stato di focus ogni 30 secondi (richiede API Noda avanzate)
+        // setInterval(checkFocusStatus, 30000); 
+
+        // Messaggio iniziale
+        window.noda.onReady = () => {
+            eventMessage("Sistema WCV Noda attivo. Inizia a lanciare i nodi!");
+        };
+
     </script>
 </body>
-
 </html>
